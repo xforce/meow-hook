@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 namespace meow_hook
 {
@@ -14,7 +15,7 @@ namespace detail
 
     class detour_base
     {
-      public:
+      protected:
         detour_base(uintptr_t address, void *func)
             : address_(address)
             , function_(func)
@@ -23,12 +24,23 @@ namespace detail
         }
         virtual ~detour_base() = default;
 
+        inline auto trampoline_raw() const
+        {
+            return trampoline_;
+        }
+
       private:
         void hook();
         void unhook();
 
-        uintptr_t address_  = 0;
-        void *    function_ = nullptr;
+        std::vector<uint8_t> create_absolute_jump() const;
+
+        void *Allocate2GBRange(uintptr_t address, size_t dwSize);
+
+        uintptr_t            address_    = 0;
+        void *               function_   = nullptr;
+        void *               trampoline_ = nullptr;
+        std::vector<uint8_t> original_code_;
 
         template <class T> friend class detour;
     };
@@ -51,6 +63,11 @@ namespace detail
         {
             // Unhook
             detour_base::unhook();
+        }
+
+        inline function_t *trampoline() const
+        {
+            return (function_t *)(trampoline_raw());
         }
     };
 

@@ -1,9 +1,9 @@
 cc_library(
     name = "spdlog",
-    defines = [
-        "SPDLOG_WCHAR_FILENAMES"
-    ],
     hdrs = glob(["spdlog/include/**/*.h"]),
+    defines = [
+        "SPDLOG_WCHAR_FILENAMES",
+    ],
     includes = [
         "spdlog/include",
     ],
@@ -12,10 +12,10 @@ cc_library(
 
 cc_library(
     name = "zycore",
-    hdrs = glob(["zydis/dependencies/zycore/include/**/*.h"]),
     srcs = glob(["zydis/dependencies/zycore/src/**/*.c"]),
+    hdrs = glob(["zydis/dependencies/zycore/include/**/*.h"]),
     defines = [
-        "ZYCORE_STATIC_DEFINE"
+        "ZYCORE_STATIC_DEFINE",
     ],
     includes = [
         "zydis/dependencies/zycore/include",
@@ -28,29 +28,35 @@ cc_library(
 
 cc_library(
     name = "zydis",
+    srcs = glob([
+        "zydis/src/**/*.c",
+        "zydis/src/**/*.inc",
+    ]),
     hdrs = glob(["zydis/include/**/*.h"]),
-    srcs = glob(["zydis/src/**/*.c", "zydis/src/**/*.inc"]),
+    copts = ["-Ithird_party/zydis/src"],  # GOD THIS SUCKS SOOOOO MUCH, WHY BAZEL WHY, I LIKE YOU BUT INCLUDE PATHS ARE JUST GARBAGE
     defines = [
-        "ZYDIS_STATIC_DEFINE"
+        "ZYDIS_STATIC_DEFINE",
     ],
     includes = [
         "zydis/include",
+        "zydis/src",  # OH WELL BAZEL
     ] + select({
         "@bazel_tools//src/conditions:windows": ["zydis/msvc"],
         "//conditions:default": [],
     }),
-    copts = ["-Ithird_party/zydis/src"], # GOD THIS SUCKS SOOOOO MUCH, WHY BAZEL WHY, I LIKE YOU BUT INCLUDE PATHS ARE JUST GARBAGE
     visibility = ["//visibility:public"],
     deps = [
-        ":zycore"
-    ]
+        ":zycore",
+    ],
 )
 
 cc_library(
     name = "asmjit",
-    defines = [ ],
-    hdrs = glob(["asmjit/src/**/*.h"]),
     srcs = glob(["asmjit/src/**/*.cpp"]),
+    hdrs = glob(["asmjit/src/**/*.h"]),
+    defines = [
+        "ASMJIT_STATIC",
+    ],
     includes = [
         "asmjit/src",
     ],
