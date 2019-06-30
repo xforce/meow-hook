@@ -1,7 +1,7 @@
-cc_binary(
+cc_library(
     name = "meow-hook",
     srcs = glob(["src/**/*.cc"]) + glob(["src/**/*.h"]) + glob(["src/**/*.asm"]),
-    # hdrs = glob(["include/**/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
     includes = [
         "include",
     ],
