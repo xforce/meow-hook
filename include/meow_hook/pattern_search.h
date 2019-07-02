@@ -29,7 +29,12 @@ class pattern
 
         template <typename T = int32_t> match add_disp()
         {
-            return {pointer_ + *reinterpret_cast<T*>(pointer_)};
+            return match{pointer_ + *reinterpret_cast<T*>(pointer_)};
+        }
+
+        uintptr_t extract_call()
+        {
+            return pointer_ + *(int32_t*)(pointer_ + 1) + 4;
         }
 
         template <typename T = void> auto get(int offset = 0) -> T*
