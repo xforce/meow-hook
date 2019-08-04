@@ -148,10 +148,6 @@ void detour_base::hook()
         }
     }
 
-    // TODO(alexander): Above we should detect if one of the registers that we might use
-    // for a jump are used
-    // if they are not we should _NOT_ do a push ret, because push ret is very very bad for
-    // branch prediction
     asmjit::CodeHolder trampoline_code;
     asmjit::CodeInfo   ci{asmjit::ArchInfo::kIdX64};
 
@@ -215,7 +211,6 @@ void detour_base::hook()
 
         // Success
         trampoline_assembler.embed((void*)(address_), static_cast<uint32_t>(jump_buffer.size()));
-
         const Mem       b              = ptr(rip, 0);
         const uintptr_t return_address = address_ + jump_buffer.size();
         trampoline_assembler.jmp(b);
