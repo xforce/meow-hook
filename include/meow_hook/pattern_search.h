@@ -34,7 +34,7 @@ class pattern
 
         uintptr_t extract_call()
         {
-            return pointer_ + *(int32_t*)(pointer_ + 1) + 4;
+            return pointer_ + *(int32_t*)(pointer_ + 1) + 5;
         }
 
         template <typename T = void> auto get(int offset = 0) -> T*

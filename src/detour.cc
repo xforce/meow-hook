@@ -50,16 +50,18 @@ static inline void RelocateInstruction(intptr_t source_base, intptr_t target_bas
         auto* target_code = code.textSection()->buffer().data() + offset + disp.offset;
         switch (disp.size) {
             case 8: {
-                const auto old_abs =
-                    source_base + offset + instruction.length + *(int8_t*)(target_code);
-                const auto new_abs      = old_abs - (target_base + offset + instruction.length);
-                *(int8_t*)(target_code) = static_cast<int8_t>(new_abs);
+                // This will break anyways...
+                // const auto old_abs =
+                //    source_base + offset + instruction.length + *(int8_t*)(target_code);
+                // const auto new_abs      = old_abs - (target_base + offset + instruction.length);
+                //*(int8_t*)(target_code) = static_cast<int8_t>(new_abs);
             } break;
             case 16: {
-                const auto old_abs =
-                    source_base + offset + instruction.length + *(int16_t*)(target_code);
-                const auto new_abs       = old_abs - (target_base + offset + instruction.length);
-                *(int16_t*)(target_code) = static_cast<int16_t>(new_abs);
+                // This will break anyways...
+                /* const auto old_abs =
+                     source_base + offset + instruction.length + *(int16_t*)(target_code);
+                 const auto new_abs       = old_abs - (target_base + offset + instruction.length);
+                 *(int16_t*)(target_code) = static_cast<int16_t>(new_abs);*/
             } break;
             case 32: {
                 const auto old_abs =
@@ -128,7 +130,7 @@ void detour_base::hook()
                 }
             }
         } else if (offset <= (fill_nops_to == 0 ? jump_buffer.size() : fill_nops_to)
-                   && instruction.raw.disp.offset > 0) {
+                   && instruction.raw.disp.offset > 0 && instruction.raw.disp.size > 0x10) {
             // Displacement thingy
             reloaction_info.emplace_back(RelocationInfo{offset - instruction.length, instruction});
         }
@@ -154,13 +156,12 @@ void detour_base::hook()
     asmjit::CodeInfo   ci{asmjit::ArchInfo::kIdX64};
 
     constexpr auto kRequired64bitJumpSize = 17;
-    constexpr auto kRelocationEntrySize   = 5;
+    constexpr auto kRelocationEntrySize   = 5; // 5 is 32 bit relative jump
 
     const auto trampoline_size = kRequired64bitJumpSize + jump_buffer.size()
                                  + (reloaction_info.size() * kRelocationEntrySize);
 
-    const auto trampoline_2gb =
-        Allocate2GBRange(address_, trampoline_size); // 5 is 32 bit relative jump
+    const auto trampoline_2gb = Allocate2GBRange(address_, trampoline_size);
     if (trampoline_2gb) {
         using namespace asmjit::x86;
 
@@ -171,9 +172,10 @@ void detour_base::hook()
 
         // Success
         trampoline_assembler.embed((void*)(address_), static_cast<uint32_t>(jump_buffer.size()));
-        trampoline_assembler.push(r15);
-        trampoline_assembler.mov(r15, (uintptr_t)(address_ + 14));
-        trampoline_assembler.jmp(r15);
+        const Mem       b              = ptr(rip, 0);
+        const uintptr_t return_address = address_ + jump_buffer.size();
+        trampoline_assembler.jmp(b);
+        trampoline_assembler.embed((void*)(&return_address), sizeof(return_address));
 
         // Do the relocation stuff
         for (auto& reloc_info : reloaction_info) {
@@ -213,9 +215,11 @@ void detour_base::hook()
 
         // Success
         trampoline_assembler.embed((void*)(address_), static_cast<uint32_t>(jump_buffer.size()));
-        trampoline_assembler.push(r15);
-        trampoline_assembler.mov(r15, (uintptr_t)(address_ + 14));
-        trampoline_assembler.jmp(r15);
+
+        const Mem       b              = ptr(rip, 0);
+        const uintptr_t return_address = address_ + jump_buffer.size();
+        trampoline_assembler.jmp(b);
+        trampoline_assembler.embed((void*)(&return_address), sizeof(return_address));
 
         auto trampoline =
             VirtualAlloc(0, trampoline_size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -240,7 +244,11 @@ void detour_base::unhook()
 {
 
     if (address_ > 0) {
+        DWORD old_protect;
+        VirtualProtect((LPVOID)address_, original_code_.size(), PAGE_EXECUTE_READWRITE,
+                       &old_protect);
         memcpy((void*)address_, original_code_.data(), original_code_.size());
+        VirtualProtect((LPVOID)address_, original_code_.size(), old_protect, &old_protect);
     }
     if (trampoline_) {
         VirtualFree(trampoline_, 0, MEM_RELEASE);
@@ -300,9 +308,9 @@ std::vector<uint8_t> detour_base::create_absolute_jump() const
 
     asmjit::x86::Assembler jump_assembler(&jump_code);
 
-    jump_assembler.mov(r15, (uintptr_t)(function_));
-    jump_assembler.jmp(r15);
-    jump_assembler.pop(r15);
+    Mem b = ptr(rip, 0);
+    jump_assembler.jmp(b);
+    jump_assembler.embed((void*)(&function_), sizeof(function_));
 
     asmjit::CodeBuffer& jump_buffer = jump_code.textSection()->buffer();
     return {jump_buffer.data(), jump_buffer.data() + jump_buffer.size()};
