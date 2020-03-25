@@ -67,15 +67,16 @@ class pattern
     match    get(int index);
     size_t   size();
     pattern& count(int expected);
+    bool     matches();
 
   private:
     void save_hints();
     bool load_hints();
     void find_matches();
 
-    bool               matched_;
-    std::string        bytes_;
-    std::string        mask_;
-    std::vector<match> matches_;
+    bool               matched_ = false;
+    std::string        bytes_ = "";
+    std::string        mask_ = "";
+    std::vector<match> matches_ = {};
 };
 } // namespace meow_hook

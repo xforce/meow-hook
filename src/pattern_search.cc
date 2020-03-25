@@ -63,7 +63,7 @@ namespace
         for (int32_t i = 0; i < header->FileHeader.NumberOfSections; i++, section++) {
             bool executable = (section->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
             bool readable   = (section->Characteristics & IMAGE_SCN_MEM_READ) != 0;
-            if (readable && executable) {
+            if (readable) {
                 auto     beg        = (header->OptionalHeader.ImageBase + section->VirtualAddress);
                 uint32_t sizeOfData = std::min(section->SizeOfRawData, section->Misc.VirtualSize);
                 sections.emplace_back(beg, beg + sizeOfData);
@@ -135,6 +135,18 @@ pattern &pattern::count(int expected)
     return *this;
 }
 
+bool pattern::matches()
+{
+    if (!matched_) {
+        find_matches();
+    }
+
+    if (matches_.size() > 0) {
+        return true;
+    }
+    return false;
+}
+
 void pattern::save_hints()
 {
     //
@@ -194,8 +206,35 @@ void pattern::find_matches()
 
         sse42 = (cpuid[2] & (1 << 20));
     }
+
+    bool sinlge_threaded = false;
     auto exe_sections = GetExecutableSections();
-    if (!sse42) {
+    if (sinlge_threaded) {
+        for (auto &section : exe_sections) {
+            auto section_size = section.end() - section.begin();
+            if (section_size > 1) {
+                std::vector<match> matches;
+                for (uintptr_t offset = section.begin(); offset < section.end(); ++offset) {
+                    if (does_match(offset)) {
+                        matches.emplace_back(offset);
+                    }
+                }
+
+                if (!matches.empty()) {
+                    matches_.insert(matches_.end(), matches.begin(), matches.end());
+                }
+
+                // Remove duplicates
+                auto end = matches_.end();
+                for (auto it = matches_.begin(); it != end; ++it) {
+                    end = std::remove(it + 1, end, *it);
+                }
+                matches_.erase(end, matches_.end());
+
+                save_hints();
+            }
+        }
+    } else  if (!sse42) {
         for (auto &section : exe_sections) {
             auto section_size = section.end() - section.begin();
             if (section_size > 1) {
@@ -289,6 +328,8 @@ void pattern::find_matches()
         end = std::remove(it + 1, end, *it);
     }
     matches_.erase(end, matches_.end());
+
+    matched_ = true;
 
     save_hints();
 }
