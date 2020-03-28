@@ -40,10 +40,7 @@ namespace
 
     static std::vector<PESectionInfo> GetExecutableSections()
     {
-        static std::vector<PESectionInfo> sections;
-        if (!sections.empty()) {
-            return sections;
-        }
+        std::vector<PESectionInfo> sections;
 
         auto executable_address = GetModuleHandle(NULL);
 
@@ -63,8 +60,8 @@ namespace
         for (int32_t i = 0; i < header->FileHeader.NumberOfSections; i++, section++) {
             bool executable = (section->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
             bool readable   = (section->Characteristics & IMAGE_SCN_MEM_READ) != 0;
-            if (readable) {
-                auto     beg        = (header->OptionalHeader.ImageBase + section->VirtualAddress);
+            if (readable && executable) {
+                auto     beg        = ((uintptr_t)executable_address + section->VirtualAddress);
                 uint32_t sizeOfData = std::min(section->SizeOfRawData, section->Misc.VirtualSize);
                 sections.emplace_back(beg, beg + sizeOfData);
             }
@@ -95,51 +92,46 @@ static void generate_mask_and_data(std::string_view pattern, std::string &mask, 
     }
 }
 
-pattern::pattern(std::string pattern)
+pattern::pattern(std::string pattern, std::optional<std::string_view> search_buffer)
+    : search_buffer_(search_buffer)
 {
     generate_mask_and_data(pattern, mask_, bytes_);
 }
 
-pattern::pattern(std::string_view pattern)
+pattern::pattern(std::string_view pattern, std::optional<std::string_view> search_buffer)
+    : search_buffer_(search_buffer)
 {
     generate_mask_and_data(pattern, mask_, bytes_);
 }
 
 pattern::match pattern::get(int index)
 {
-    if (!matched_) {
-        find_matches();
-    }
+    find_matches();
     return matches_[index];
 }
 
 size_t pattern::size()
 {
     //
-    if (!matched_) {
-        find_matches();
-    }
+    find_matches();
+
     return matches_.size();
 }
 
 pattern &pattern::count(int expected)
 {
     //
-    if (!matched_) {
-        find_matches();
-    }
+    find_matches();
 
     if (matches_.size() != expected) {
-        __debugbreak();
+        throw std::runtime_error("Matches does not match expected");
     }
     return *this;
 }
 
 bool pattern::matches()
 {
-    if (!matched_) {
-        find_matches();
-    }
+    find_matches();
 
     if (matches_.size() > 0) {
         return true;
@@ -160,7 +152,23 @@ bool pattern::load_hints()
 
 void pattern::find_matches()
 {
+    if (matched_) {
+        return;
+    } else {
+        matched_ = true;
+    }
+
     //
+    auto get_search_sections = [this]() {
+        if (this->search_buffer_) {
+            std::vector<PESectionInfo> sections;
+            sections.emplace_back(reinterpret_cast<uintptr_t>(this->search_buffer_->data()),
+                                  reinterpret_cast<uintptr_t>(this->search_buffer_->data() + this->search_buffer_->size()));
+            return sections;
+        }
+        return GetExecutableSections();
+    };
+
     auto does_match = [this](uintptr_t offset) {
         char *ptr = reinterpret_cast<char *>(offset);
 
@@ -178,7 +186,7 @@ void pattern::find_matches()
     };
 
     if (load_hints()) {
-        // Make aure we still match those
+        // Make sure we still match those
         bool all_match = true;
         for (auto &match : matches_) {
             if (!does_match(reinterpret_cast<uintptr_t>(match.get<uintptr_t>()))) {
@@ -208,7 +216,7 @@ void pattern::find_matches()
     }
 
     bool sinlge_threaded = false;
-    auto exe_sections = GetExecutableSections();
+    auto exe_sections = get_search_sections();
     if (sinlge_threaded) {
         for (auto &section : exe_sections) {
             auto section_size = section.end() - section.begin();
@@ -223,15 +231,6 @@ void pattern::find_matches()
                 if (!matches.empty()) {
                     matches_.insert(matches_.end(), matches.begin(), matches.end());
                 }
-
-                // Remove duplicates
-                auto end = matches_.end();
-                for (auto it = matches_.begin(); it != end; ++it) {
-                    end = std::remove(it + 1, end, *it);
-                }
-                matches_.erase(end, matches_.end());
-
-                save_hints();
             }
         }
     } else  if (!sse42) {
@@ -328,8 +327,6 @@ void pattern::find_matches()
         end = std::remove(it + 1, end, *it);
     }
     matches_.erase(end, matches_.end());
-
-    matched_ = true;
 
     save_hints();
 }

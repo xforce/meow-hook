@@ -240,7 +240,6 @@ void detour_base::hook()
 
 void detour_base::unhook()
 {
-
     if (address_ > 0) {
         DWORD old_protect;
         VirtualProtect((LPVOID)address_, original_code_.size(), PAGE_EXECUTE_READWRITE,

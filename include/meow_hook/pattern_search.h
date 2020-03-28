@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <optional>
 
 namespace meow_hook
 {
@@ -20,6 +21,11 @@ class pattern
         uintptr_t addr()
         {
             return pointer_;
+        }
+
+        void rebase(uintptr_t old_base, uintptr_t new_base) {
+            pointer_ -= old_base;
+            pointer_ += new_base;
         }
 
         match adjust(intptr_t val)
@@ -52,17 +58,27 @@ class pattern
             return pointer_ == rhs.pointer_;
         }
 
+        bool operator<(const match& r) const
+        {
+            return (pointer_ < r.pointer_);
+        }
+
+        bool operator>(const match& r) const
+        {
+            return (pointer_ > r.pointer_);
+        }
+
       private:
-        uintptr_t pointer_;
+        uintptr_t pointer_ = 0;
     };
 
     template <size_t Len>
-    pattern(const char (&pattern)[Len])
-        : pattern(std::string_view(pattern, Len))
+    pattern(const char (&pattern)[Len],  std::optional<std::string_view> search_buffer = {})
+        : pattern(std::string_view(pattern, Len), search_buffer)
     {
     }
-    explicit pattern(std::string pattern);
-    explicit pattern(std::string_view pattern);
+    explicit pattern(std::string pattern, std::optional<std::string_view> search_buffer = {});
+    explicit pattern(std::string_view pattern, std::optional<std::string_view> search_buffer = {});
 
     match    get(int index);
     size_t   size();
@@ -78,5 +94,6 @@ class pattern
     std::string        bytes_ = "";
     std::string        mask_ = "";
     std::vector<match> matches_ = {};
+    std::optional<std::string_view> search_buffer_ = {};
 };
 } // namespace meow_hook
