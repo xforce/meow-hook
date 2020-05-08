@@ -215,6 +215,8 @@ void pattern::find_matches()
         sse42 = (cpuid[2] & (1 << 20));
     }
 
+    const auto num_threads = std::thread::hardware_concurrency() > 0 ? std::thread::hardware_concurrency() : 2;
+
     bool sinlge_threaded = false;
     auto exe_sections = get_search_sections();
     if (sinlge_threaded) {
@@ -236,25 +238,26 @@ void pattern::find_matches()
     } else  if (!sse42) {
         for (auto &section : exe_sections) {
             auto section_size = section.end() - section.begin();
-            if (section_size > 1) {
-                auto part_size = section_size / (std::thread::hardware_concurrency() / 2);
-                auto rest      = section_size % part_size;
-                for (uintptr_t i = section.begin(); i < section.end() - rest; i += part_size) {
-                    auto handle = std::async(
-                        std::launch::async,
-                        [&](uintptr_t start, uintptr_t end) -> std::vector<match> {
-                            std::vector<match> matches;
-                            for (uintptr_t offset = start; offset < end; ++offset) {
-                                if (does_match(offset)) {
-                                    matches.emplace_back(offset);
-                                }
+            if (!(section_size > 16)) {
+                continue;
+            }
+            const auto part_size = section_size / (num_threads / 2);
+            const auto rest      = section_size > part_size ? section_size % part_size : 0;
+            for (uintptr_t i = section.begin(); i < section.end() - rest; i += part_size) {
+                auto handle = std::async(
+                    std::launch::async,
+                    [&](uintptr_t start, uintptr_t end) -> std::vector<match> {
+                        std::vector<match> matches;
+                        for (uintptr_t offset = start; offset < end; ++offset) {
+                            if (does_match(offset)) {
+                                matches.emplace_back(offset);
                             }
-                            return matches;
-                        },
-                        i, i + part_size);
+                        }
+                        return matches;
+                    },
+                    i, i + part_size);
 
-                    futureHandles.push_back(std::move(handle));
-                }
+                futureHandles.push_back(std::move(handle));
             }
         }
     } else {
@@ -272,9 +275,11 @@ void pattern::find_matches()
 
         for (auto &section : exe_sections) {
             const auto section_size = section.end() - section.begin();
-
-            const auto part_size = section_size / (std::thread::hardware_concurrency() / 2);
-            const auto rest      = section_size % part_size;
+            if (!(section_size > 16)) {
+                continue;
+            }
+            const auto part_size = section_size / (num_threads / 2);
+            const auto rest      = section_size > part_size ? section_size % part_size : 0;
             for (uintptr_t i = section.begin(); i < (section.end() - rest); i += part_size) {
                 auto _end = i + part_size;
 
