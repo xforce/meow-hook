@@ -48,7 +48,8 @@ static inline void RelocateInstruction(intptr_t source_base, intptr_t target_bas
 
     if (disp.size != 0) {
         auto* target_code = code.textSection()->buffer().data() + offset + disp.offset;
-        if (instruction.mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_LEA) {
+        if (instruction.mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_LEA
+            || instruction.mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_MOV) {
             return;
         }
         switch (disp.size) {

@@ -58,6 +58,10 @@ namespace detail
             // Hook
             detour_base::hook();
         }
+        detour(void* address, function_t *fn)
+            : detour(uintptr_t(address), fn)
+        {
+        }
 
         ~detour() override
         {
@@ -82,13 +86,13 @@ template <typename T> using detour = detail::detour<T>;
 #define MH_PP_CAT_I(a, b) MH_PP_CAT_II(~, a##b)
 #define MH_PP_CAT_II(p, res) res
 
-#define MH_STATIC_DETOOUR_IMPL(n, addr, fn)                                                        \
-    (([]() -> auto {                                                                               \
-        static ::meow_hook::detour<decltype(fn)> n{addr, fn};                                      \
-        return n.trampoline();                                                                     \
+#define MH_STATIC_DETOUR_IMPL(n, addr, fn)                                                        \
+    (([=]() -> auto {                                                                      \
+        static ::meow_hook::detour<decltype(fn)> n{addr, fn};                                     \
+        return n.trampoline();                                                                    \
     })())
 
-#define MH_STATIC_DETOUR(addr, fn)                                                                 \
-    MH_STATIC_DETOOUR_IMPL(MH_PP_CAT(mh_detour, __COUNTER__), addr, fn)
+#define MH_STATIC_DETOUR(addr, fn)                                                                \
+    MH_STATIC_DETOUR_IMPL(MH_PP_CAT(mh_detour, __COUNTER__), addr, fn)
 
 } // namespace meow_hook
