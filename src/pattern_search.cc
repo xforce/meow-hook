@@ -7,11 +7,15 @@
 #include <algorithm>
 #include <future>
 #include <locale>
+#include <tuple>
 #include <vector>
 
 namespace meow_hook
 {
 //
+static std::unordered_map<std::string, std::vector<uintptr_t>>
+find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
+             std::optional<std::string_view>                   search_buffer);
 
 namespace
 {
@@ -158,26 +162,68 @@ void pattern::find_matches()
         matched_ = true;
     }
 
+    auto res = ::meow_hook::find_matches({{
+                                  this->mask_,
+                                  this->bytes_,
+                              }},
+                              this->search_buffer_);
+    if (res[this->mask_].size() == 0) {
+        printf("Failed to find match :(\n");
+    }
+    for (auto n : res[this->mask_]) {
+        this->matches_.emplace_back(n);
+    }
+}
+
+static bool load_hints(std::unordered_map<std::string, std::vector<uintptr_t>> &matches)
+{
+    return false;
+}
+
+static void save_hints(std::unordered_map<std::string, std::vector<uintptr_t>> matches) {
     //
-    auto get_search_sections = [this]() {
-        if (this->search_buffer_) {
+}
+
+uint32_t __inline ctz(uint32_t value)
+{
+    DWORD trailing_zero = 0;
+
+    if (_BitScanForward(&trailing_zero, value)) {
+        return trailing_zero;
+    } else {
+        // This is undefined, I better choose 32 than 0
+        return 32;
+    }
+}
+
+
+static std::unordered_map<std::string, std::vector<uintptr_t>>
+find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
+             std::optional<std::string_view>                   search_buffer)
+{
+    std::unordered_map<std::string, std::vector<uintptr_t>> matches;
+    //
+    auto get_search_sections = [&]() {
+        if (search_buffer) {
             std::vector<PESectionInfo> sections;
-            sections.emplace_back(reinterpret_cast<uintptr_t>(this->search_buffer_->data()),
-                                  reinterpret_cast<uintptr_t>(this->search_buffer_->data() + this->search_buffer_->size()));
+            sections.emplace_back(
+                reinterpret_cast<uintptr_t>(search_buffer->data()),
+                reinterpret_cast<uintptr_t>(search_buffer->data() + search_buffer->size()));
             return sections;
         }
         return GetExecutableSections();
     };
 
-    auto does_match = [this](uintptr_t offset) {
-        char *ptr = reinterpret_cast<char *>(offset);
+    auto does_match = [](std::tuple<std::string, std::string> pattern, uintptr_t offset) {
+        auto &[mask, bytes] = pattern;
+        char *ptr            = reinterpret_cast<char *>(offset);
 
-        for (size_t i = 0; i < mask_.size(); i++) {
-            if (mask_[i] == '?') {
+        for (size_t i = 0; i < mask.size(); i++) {
+            if (mask[i] == '?') {
                 continue;
             }
 
-            if (bytes_.length() < i || bytes_[i] != ptr[i]) {
+            if (bytes.length() < i || bytes[i] != ptr[i]) {
                 return false;
             }
         }
@@ -185,155 +231,284 @@ void pattern::find_matches()
         return true;
     };
 
-    if (load_hints()) {
-        // Make sure we still match those
-        bool all_match = true;
-        for (auto &match : matches_) {
-            if (!does_match(reinterpret_cast<uintptr_t>(match.get<uintptr_t>()))) {
-                all_match = false;
-                break;
-            }
-        }
-        if (all_match) {
-            // This ensures the pattern is in the cache
-            // this is required when we try to get the same pattern again at a later time
-            save_hints();
-            return;
-        }
-        matches_.clear();
+    if (load_hints(matches)) {
+         // Make sure we still match those
+         //bool all_match = true;
+         //for (auto &match : matches) {
+         //   if (!does_match(reinterpret_cast<uintptr_t>(match.get<uintptr_t>()))) {
+         //       all_match = false;
+         //       break;
+         //   }
+         //}
+         //if (all_match) {
+         //   // This ensures the pattern is in the cache
+         //   // this is required when we try to get the same pattern again at a later time
+         //   save_hints(matches);
+         //   return;
+         //}
+         //matches_.clear();
     }
-
-    std::vector<std::future<std::vector<match>>> futureHandles = {};
 
     // check if SSE 4.2 is supported
     int32_t cpuid[4];
     __cpuid(cpuid, 0);
-    bool sse42 = false;
+    bool sse42new = false;
+    bool sse42old = true;
+    bool avx   = false;
     if (cpuid[0] >= 1) {
         __cpuidex(cpuid, 1, 0);
 
-        sse42 = (cpuid[2] & (1 << 20));
+        sse42new = (cpuid[2] & (1 << 20));
+        avx = (cpuid[2] & (1 << 28));
     }
 
-    const auto num_threads = std::thread::hardware_concurrency() > 0 ? std::thread::hardware_concurrency() : 2;
-
-    bool sinlge_threaded = false;
     auto exe_sections = get_search_sections();
-    if (sinlge_threaded) {
+    if (!sse42old && !sse42new && !avx) {
         for (auto &section : exe_sections) {
             auto section_size = section.end() - section.begin();
             if (section_size > 1) {
-                std::vector<match> matches;
                 for (uintptr_t offset = section.begin(); offset < section.end(); ++offset) {
-                    if (does_match(offset)) {
-                        matches.emplace_back(offset);
+                    for (auto &pattern : patterns) {
+                        if (does_match(pattern, offset)) {
+                            auto n = offset - (uintptr_t)search_buffer->data();
+                            n      = n;
+                            matches[std::get<0>(pattern)].emplace_back(offset);
+                        }
                     }
                 }
+            }
+        }
+    } else if(avx) {
+        // SSE
+        struct SSEPatternData {
+            __m256i first;
+            __m256i last;
+            size_t  spread;
+            size_t  data_size;
+            std::tuple<std::string, std::string> pattern;
+        };
 
-                if (!matches.empty()) {
-                    matches_.insert(matches_.end(), matches.begin(), matches.end());
+        std::vector<SSEPatternData> sse_patterns;
+
+        for (auto &pattern : patterns) {
+            auto &[mask, bytes] = pattern;
+
+            const auto mask_size = std::min(mask.size(), size_t(32));
+            const auto data_size = std::min(bytes.size(), size_t(32));
+
+            __m256i first  = _mm256_set1_epi8(0);
+            __m256i last   = _mm256_set1_epi8(0);
+            int32_t ifirst = 0;
+            int32_t ilast  = 0;
+            
+            for (int32_t i = 0; i < mask_size; ++i) {
+                 if (mask[i] != '?') {
+                    first  = _mm256_set1_epi8(bytes[i]);
+                     ifirst = i;
+                     break;
+                 }
+            }
+            for (int32_t i = mask_size - 1; i >= 0; --i) {
+                if (mask[i] != '?') {
+                    last  = _mm256_set1_epi8(bytes[i]);
+                    ilast = i;
+                    break;
+                }
+            }
+
+            sse_patterns.emplace_back(SSEPatternData{first, last, static_cast<size_t>(ilast - ifirst), data_size, pattern});
+        }
+
+        for (auto &section : exe_sections) {
+            const auto section_size = section.end() - section.begin();
+            if (!(section_size > 32)) {
+                continue;
+            }
+            auto end = section.end() - 32;
+
+            for (uintptr_t offset = section.begin(); offset < end; offset += 32) {
+                for (auto &s_pattern : sse_patterns) {
+                    auto &&[first, last, spread, data_size, pattern] = s_pattern;
+
+                    // I think this may be somewhat slow....
+                    const __m256i block_first =
+                        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(offset));
+                    const __m256i block_last =
+                        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(offset + spread));
+
+                    const __m256i eq_first = _mm256_cmpeq_epi8(first, block_first);
+                    const __m256i eq_last  = _mm256_cmpeq_epi8(last, block_last);
+
+                    uint32_t mask = _mm256_movemask_epi8(_mm256_and_si256(eq_first, eq_last));
+               
+                    while (mask != 0) {
+
+                        const auto bitpos = ctz(mask);
+
+                        if (does_match(pattern, offset + bitpos)) {
+                            matches[std::get<0>(pattern)].emplace_back(offset + bitpos);
+                            break;
+                        }
+
+                        mask = mask & (mask - 1);
+                    }
                 }
             }
         }
-    } else  if (!sse42) {
-        for (auto &section : exe_sections) {
-            auto section_size = section.end() - section.begin();
-            if (!(section_size > 16)) {
-                continue;
+    } else if(sse42new) {
+        struct SSEPatternData {
+            __m128i                              first;
+            __m128i                              last;
+            size_t                               spread;
+            size_t                               data_size;
+            std::tuple<std::string, std::string> pattern;
+        };
+
+        std::vector<SSEPatternData> sse_patterns;
+
+        for (auto &pattern : patterns) {
+            auto &[mask, bytes] = pattern;
+
+            const auto mask_size = std::min(mask.size(), size_t(16));
+            const auto data_size = std::min(bytes.size(), size_t(16));
+
+            __m128i first  = _mm_set1_epi8(0);
+            __m128i last   = _mm_set1_epi8(0);
+            int32_t ifirst = 0;
+            int32_t ilast  = 0;
+
+            for (int32_t i = 0; i < mask_size; ++i) {
+                if (mask[i] != '?') {
+                    first  = _mm_set1_epi8(bytes[i]);
+                    ifirst = i;
+                    break;
+                }
             }
-            const auto part_size = section_size / (num_threads / 2);
-            const auto rest      = section_size > part_size ? section_size % part_size : 0;
-            for (uintptr_t i = section.begin(); i < section.end() - rest; i += part_size) {
-                auto handle = std::async(
-                    std::launch::async,
-                    [&](uintptr_t start, uintptr_t end) -> std::vector<match> {
-                        std::vector<match> matches;
-                        for (uintptr_t offset = start; offset < end; ++offset) {
-                            if (does_match(offset)) {
-                                matches.emplace_back(offset);
-                            }
-                        }
-                        return matches;
-                    },
-                    i, i + part_size);
-
-                futureHandles.push_back(std::move(handle));
+            for (int32_t i = mask_size - 1; i >= 0; --i) {
+                if (mask[i] != '?') {
+                    last  = _mm_set1_epi8(bytes[i]);
+                    ilast = i;
+                    break;
+                }
             }
-        }
-    } else {
-        // SSE
-        __declspec(align(16)) char desired_mask[16] = {0};
 
-        const auto mask_size = std::min(mask_.size(), size_t(16));
-        const auto data_size = std::min(bytes_.size(), size_t(16));
-        for (int32_t i = 0; i < mask_size; i++) {
-            desired_mask[i / 8] |= ((mask_[i] == '?') ? 0 : 1) << (i % 8);
+            sse_patterns.emplace_back(SSEPatternData{
+                first, last, static_cast<size_t>(ilast - ifirst), data_size, pattern});
         }
-
-        __m128i mask      = _mm_load_si128(reinterpret_cast<const __m128i *>(desired_mask));
-        __m128i comparand = _mm_loadu_si128(reinterpret_cast<const __m128i *>(bytes_.c_str()));
 
         for (auto &section : exe_sections) {
             const auto section_size = section.end() - section.begin();
             if (!(section_size > 16)) {
                 continue;
             }
-            const auto part_size = section_size / (num_threads / 2);
-            const auto rest      = section_size > part_size ? section_size % part_size : 0;
-            for (uintptr_t i = section.begin(); i < (section.end() - rest); i += part_size) {
-                auto _end = i + part_size;
+            auto end = section.end() - 16;
 
-                if (_end > (section.end() - 16)) {
-                    _end = section.end() - 16;
-                }
-                auto handle = std::async(
-                    std::launch::async,
-                    [&](uintptr_t start, uintptr_t end) -> std::vector<match> {
-                        std::vector<match> vmatches;
-                        for (uintptr_t offset = start; offset < end; ++offset) {
-                            __m128i value =
-                                _mm_loadu_si128(reinterpret_cast<const __m128i *>(offset));
-                            __m128i result =
-                                _mm_cmpestrm(value, 16, comparand, static_cast<int>(data_size),
-                                             _SIDD_CMP_EQUAL_EACH);
+            for (uintptr_t offset = section.begin(); offset < end; offset += 16) {
+                for (auto &s_pattern : sse_patterns) {
+                    auto &&[first, last, spread, data_size, pattern] = s_pattern;
+                    // Load 32 bytes from the start and from the end
+                    // We try to match the first and last byte in each, if we find one
+                    // We know that we have a potential match
 
-                            // as the result can match more bits than the mask contains
-                            __m128i matches     = _mm_and_si128(mask, result);
-                            __m128i equivalence = _mm_xor_si128(mask, matches);
+                    // This is rather slow :( 
+                    // 7 latency, throughput 0.5
+                    // Maybe do 2 or more at a time?
+                    const __m128i block_first =
+                        _mm_loadu_si128(reinterpret_cast<const __m128i *>(offset));
+                    const __m128i block_last =
+                        _mm_loadu_si128(reinterpret_cast<const __m128i *>(offset + spread));
 
-                            if (_mm_test_all_zeros(equivalence, equivalence)) {
-                                // Because we might only do partial match, make sure we actually
-                                // have a full match
-                                if (does_match(offset)) {
-                                    vmatches.emplace_back(offset);
-                                }
-                            }
+                    const __m128i eq_first = _mm_cmpeq_epi8(first, block_first);
+                    const __m128i eq_last  = _mm_cmpeq_epi8(last, block_last);
+
+                    uint32_t mask = _mm_movemask_epi8(_mm_and_si128(eq_first, eq_last));
+
+                    while (mask != 0) {
+
+                        const auto bitpos = ctz(mask);
+
+                        if (does_match(pattern, offset + bitpos)) {
+                            matches[std::get<0>(pattern)].emplace_back(offset + bitpos);
+                            break;
                         }
-                        return vmatches;
-                    },
-                    i, _end);
 
-                futureHandles.push_back(std::move(handle));
+                        mask = mask & (mask - 1);
+                    }
+                }
+            }
+        }
+    } else if (sse42old) {
+        struct SSEPatternData {
+            __m128i                              smask;
+            __m128i                              comparand;
+            size_t                               data_size;
+            std::tuple<std::string, std::string> pattern;
+        };
+
+        std::vector<SSEPatternData> sse_patterns;
+
+        __declspec(align(16)) char desired_mask[16] = {0};
+        for (auto &pattern : patterns) {
+            auto &[mask, bytes] = pattern;
+
+            const auto mask_size = std::min(mask.size(), size_t(16));
+            const auto data_size = std::min(bytes.size(), size_t(16));
+
+            for (int32_t i = 0; i < mask_size; i++) {
+                desired_mask[i / 8] |= ((mask[i] == '?') ? 0 : 1) << (i % 8);
+            }
+
+            __m128i smask     = _mm_load_si128(reinterpret_cast<const __m128i *>(desired_mask));
+            __m128i comparand = _mm_loadu_si128(reinterpret_cast<const __m128i *>(bytes.c_str()));
+
+            sse_patterns.emplace_back(SSEPatternData{smask, comparand, data_size, pattern});
+        }
+
+        for (auto &section : exe_sections) {
+            const auto section_size = section.end() - section.begin();
+            if (!(section_size > 16)) {
+                continue;
+            }
+            auto end = section.end() - 16;
+
+            for (uintptr_t offset = section.begin(); offset < end; ++offset) {
+                for (auto &s_pattern : sse_patterns) {
+                    auto &&[mask, comparand, data_size, pattern] = s_pattern;
+
+                    __m128i value = _mm_loadu_si128(reinterpret_cast<const __m128i *>(offset));
+
+                    __m128i result = _mm_cmpestrm(value, 16, comparand, static_cast<int>(data_size),
+                                                  _SIDD_CMP_EQUAL_EACH);
+
+                    // as the result can match more bits than the mask contains
+                    __m128i match       = _mm_and_si128(mask, result);
+                    __m128i equivalence = _mm_xor_si128(mask, match);
+
+                    if (_mm_test_all_zeros(equivalence, equivalence)) {
+                        // Because we might only do partial match, make sure we actually
+                        // have a full match
+                        if (does_match(pattern, offset)) {
+                            matches[std::get<0>(pattern)].emplace_back(offset);
+                        }
+                    }
+                }
             }
         }
     }
 
-    for (auto &handle : futureHandles) {
-        auto matches = handle.get();
-
-        if (!matches.empty()) {
-            matches_.insert(matches_.end(), matches.begin(), matches.end());
-        }
-    }
-
     // Remove duplicates
-    auto end = matches_.end();
-    for (auto it = matches_.begin(); it != end; ++it) {
-        end = std::remove(it + 1, end, *it);
+    for (auto& match : matches) {
+        auto end = match.second.end();
+        for (auto it = match.second.begin(); it != end; ++it) {
+            end = std::remove(it + 1, end, *it);
+        }
+        match.second.erase(end, match.second.end());
     }
-    matches_.erase(end, matches_.end());
+   
 
-    save_hints();
+    save_hints(matches);
+
+    return matches;
 }
 
 } // namespace meow_hook
