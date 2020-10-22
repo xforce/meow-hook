@@ -251,11 +251,7 @@ find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
          //matches_.clear();
     }
 
-    // check if SSE 4.2 is supported
-    int32_t cpuid[4];
-    __cpuid(cpuid, 0);
     bool sse42new = false;
-    bool sse42old = true;
     bool avx   = false;
     bool avx2  = false;
 
@@ -264,7 +260,7 @@ find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
     avx2     = InstructionSet::AVX2();
 
     auto exe_sections = get_search_sections();
-    if (!sse42old && !sse42new && !avx2) {
+    if (!sse42new && !avx2) {
         for (auto &section : exe_sections) {
             auto section_size = section.end() - section.begin();
             if (section_size > 1) {
@@ -433,63 +429,6 @@ find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
                         }
 
                         mask = mask & (mask - 1);
-                    }
-                }
-            }
-        }
-    } else if (sse42old) {
-        struct SSEPatternData {
-            __m128i                              smask;
-            __m128i                              comparand;
-            size_t                               data_size;
-            std::tuple<std::string, std::string> pattern;
-        };
-
-        std::vector<SSEPatternData> sse_patterns;
-
-        __declspec(align(16)) char desired_mask[16] = {0};
-        for (auto &pattern : patterns) {
-            auto &[mask, bytes] = pattern;
-
-            const auto mask_size = std::min(mask.size(), size_t(16));
-            const auto data_size = std::min(bytes.size(), size_t(16));
-
-            for (int32_t i = 0; i < mask_size; i++) {
-                desired_mask[i / 8] |= ((mask[i] == '?') ? 0 : 1) << (i % 8);
-            }
-
-            __m128i smask     = _mm_load_si128(reinterpret_cast<const __m128i *>(desired_mask));
-            __m128i comparand = _mm_loadu_si128(reinterpret_cast<const __m128i *>(bytes.c_str()));
-
-            sse_patterns.emplace_back(SSEPatternData{smask, comparand, data_size, pattern});
-        }
-
-        for (auto &section : exe_sections) {
-            const auto section_size = section.end() - section.begin();
-            if (!(section_size > 16)) {
-                continue;
-            }
-            auto end = section.end() - 16;
-
-            for (uintptr_t offset = section.begin(); offset < end; ++offset) {
-                for (auto &s_pattern : sse_patterns) {
-                    auto &&[mask, comparand, data_size, pattern] = s_pattern;
-
-                    __m128i value = _mm_loadu_si128(reinterpret_cast<const __m128i *>(offset));
-
-                    __m128i result = _mm_cmpestrm(value, 16, comparand, static_cast<int>(data_size),
-                                                  _SIDD_CMP_EQUAL_EACH);
-
-                    // as the result can match more bits than the mask contains
-                    __m128i match       = _mm_and_si128(mask, result);
-                    __m128i equivalence = _mm_xor_si128(mask, match);
-
-                    if (_mm_test_all_zeros(equivalence, equivalence)) {
-                        // Because we might only do partial match, make sure we actually
-                        // have a full match
-                        if (does_match(pattern, offset)) {
-                            matches[std::get<0>(pattern)].emplace_back(offset);
-                        }
                     }
                 }
             }
