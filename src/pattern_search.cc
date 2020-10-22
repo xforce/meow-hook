@@ -1,5 +1,7 @@
 #include "meow_hook/pattern_search.h"
 
+#include "instruction_set.h"
+
 #include <Windows.h>
 #include <intrin.h>
 #include <xmmintrin.h>
@@ -255,15 +257,14 @@ find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
     bool sse42new = false;
     bool sse42old = true;
     bool avx   = false;
-    if (cpuid[0] >= 1) {
-        __cpuidex(cpuid, 1, 0);
+    bool avx2  = false;
 
-        sse42new = (cpuid[2] & (1 << 20));
-        avx = (cpuid[2] & (1 << 28));
-    }
+    sse42new = InstructionSet::SSE42();
+    avx      = InstructionSet::AVX();
+    avx2     = InstructionSet::AVX2();
 
     auto exe_sections = get_search_sections();
-    if (!sse42old && !sse42new && !avx) {
+    if (!sse42old && !sse42new && !avx2) {
         for (auto &section : exe_sections) {
             auto section_size = section.end() - section.begin();
             if (section_size > 1) {
@@ -278,8 +279,7 @@ find_matches(std::vector<std::tuple<std::string, std::string>> patterns,
                 }
             }
         }
-    } else if(avx) {
-        // SSE
+    } else if (avx2) {
         struct SSEPatternData {
             __m256i first;
             __m256i last;
