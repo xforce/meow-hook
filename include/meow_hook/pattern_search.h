@@ -96,4 +96,7 @@ class pattern
     std::vector<match> matches_ = {};
     std::optional<std::string_view> search_buffer_ = {};
 };
+
+void set_search_module(std::string module);
+
 } // namespace meow_hook

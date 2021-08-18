@@ -24,9 +24,8 @@ target_sources("meow-hook"
         "src/detour.cc"
         "src/detour_x86.cc"
         "src/detour_x86_64.cc"
+        "src/instruction_set.cc"
         "src/memory.cc"
-        "src/pattern_cache.cc"
-        "src/pattern_cache.h"
         "src/pattern_search.cc"
 )
 

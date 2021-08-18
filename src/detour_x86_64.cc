@@ -68,10 +68,10 @@ static inline void RelocateInstruction(intptr_t source_base, intptr_t target_bas
                  *(int16_t*)(target_code) = static_cast<int16_t>(new_abs);*/
             } break;
             case 32: {
-                const auto old_abs =
-                    source_base + offset + instruction.length + *(int32_t*)(target_code);
-                const auto new_abs       = old_abs - (target_base + offset + instruction.length);
-                *(int32_t*)(target_code) = static_cast<int32_t>(new_abs);
+                // const auto old_abs =
+                //     source_base + offset + instruction.length + *(int32_t*)(target_code);
+                // const auto new_abs       = old_abs - (target_base + offset + instruction.length);
+                // *(int32_t*)(target_code) = static_cast<int32_t>(new_abs);
             } break;
             case 64: {
                 const auto old_abs =
