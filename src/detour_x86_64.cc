@@ -1,6 +1,8 @@
 #if _M_X64 == 100
 #include "meow_hook/detour.h"
 
+#include <Windows.h>
+
 #include <Zydis/Utils.h>
 #include <Zydis/Zydis.h>
 #include <asmjit/asmjit.h>
@@ -49,9 +51,9 @@ static inline void RelocateInstruction(intptr_t source_base, intptr_t target_bas
 
     if (disp.size != 0) {
         auto* target_code = code.textSection()->buffer().data() + offset + disp.offset;
-        if (instruction.mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_LEA) {
-            return;
-        }
+        //if (instruction.mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_LEA) {
+        //    return;
+        //}
         switch (disp.size) {
             case 8: {
                 // This will break anyways...
@@ -68,10 +70,10 @@ static inline void RelocateInstruction(intptr_t source_base, intptr_t target_bas
                  *(int16_t*)(target_code) = static_cast<int16_t>(new_abs);*/
             } break;
             case 32: {
-                // const auto old_abs =
-                //     source_base + offset + instruction.length + *(int32_t*)(target_code);
-                // const auto new_abs       = old_abs - (target_base + offset + instruction.length);
-                // *(int32_t*)(target_code) = static_cast<int32_t>(new_abs);
+                 const auto old_abs =
+                     source_base + offset + instruction.length + *(int32_t*)(target_code);
+                 const auto new_abs       = old_abs - (target_base + offset + instruction.length);
+                 *(int32_t*)(target_code) = static_cast<int32_t>(new_abs);
             } break;
             case 64: {
                 const auto old_abs =
@@ -153,7 +155,6 @@ void detour_base::hook()
     }
 
     asmjit::CodeHolder trampoline_code;
-    asmjit::CodeInfo   ci{asmjit::ArchInfo::kIdX64};
 
     constexpr auto kRequired64bitJumpSize = 17;
     constexpr auto kRelocationEntrySize   = 5; // 5 is 32 bit relative jump
@@ -165,8 +166,8 @@ void detour_base::hook()
     if (trampoline_2gb) {
         using namespace asmjit::x86;
 
-        ci.setBaseAddress(reinterpret_cast<uintptr_t>(trampoline_2gb));
-        trampoline_code.init(ci);
+        trampoline_code.init(asmjit::hostEnvironment(),
+                             reinterpret_cast<uintptr_t>(trampoline_2gb));
 
         asmjit::x86::Assembler trampoline_assembler(&trampoline_code);
 
@@ -208,8 +209,8 @@ void detour_base::hook()
 
         using namespace asmjit::x86;
 
-        ci.setBaseAddress(reinterpret_cast<uintptr_t>(trampoline_2gb));
-        trampoline_code.init(ci);
+        trampoline_code.init(asmjit::hostEnvironment(),
+                             reinterpret_cast<uintptr_t>(trampoline_2gb));
 
         asmjit::x86::Assembler trampoline_assembler(&trampoline_code);
 
@@ -244,7 +245,7 @@ std::vector<uint8_t> detour_base::create_absolute_jump() const
     using namespace asmjit::x86;
 
     asmjit::CodeHolder jump_code;
-    jump_code.init(asmjit::CodeInfo(asmjit::ArchInfo::kIdX64));
+    jump_code.init(asmjit::hostEnvironment());
 
     asmjit::x86::Assembler jump_assembler(&jump_code);
 

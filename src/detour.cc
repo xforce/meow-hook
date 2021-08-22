@@ -1,5 +1,7 @@
 #include "meow_hook/detour.h"
 
+#include <Windows.h>
+
 #include <Zydis/Utils.h>
 #include <Zydis/Zydis.h>
 #include <asmjit/asmjit.h>

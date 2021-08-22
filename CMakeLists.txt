@@ -7,7 +7,7 @@ add_subdirectory(third_party/zydis)
 add_subdirectory(third_party/spdlog)
 
 add_library("meow-hook" STATIC)
-target_compile_definitions("meow-hook" PRIVATE "NOMINMAX")
+target_compile_definitions("meow-hook" PRIVATE "NOMINMAX" "WIN32_LEAN_AND_MEAN")
 set_property(TARGET meow-hook PROPERTY CXX_STANDARD 17)
 
 target_include_directories("meow-hook"
