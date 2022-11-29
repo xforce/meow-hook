@@ -5,6 +5,9 @@
 #include <Zydis/Zydis.h>
 #include <asmjit/asmjit.h>
 
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <Memoryapi.h>
 
 namespace meow_hook::detail
 {
@@ -154,7 +157,8 @@ void detour_base::hook()
     }
 
     asmjit::CodeHolder trampoline_code;
-    asmjit::CodeInfo   ci{asmjit::ArchInfo::kIdX86};
+    auto environment = asmjit::Environment::host();
+    environment.setArch(asmjit::Arch::kX86);
 
     constexpr auto kRequired64bitJumpSize = 17;
     constexpr auto kRelocationEntrySize   = 5; // 5 is 32 bit relative jump
@@ -166,8 +170,7 @@ void detour_base::hook()
     if (trampoline_2gb) {
         using namespace asmjit::x86;
 
-        ci.setBaseAddress(reinterpret_cast<uintptr_t>(trampoline_2gb));
-        trampoline_code.init(ci);
+        trampoline_code.init(environment, reinterpret_cast<uintptr_t>(trampoline_2gb));
 
         asmjit::x86::Assembler trampoline_assembler(&trampoline_code);
 
@@ -207,8 +210,7 @@ void detour_base::hook()
 
         using namespace asmjit::x86;
 
-        ci.setBaseAddress(reinterpret_cast<uintptr_t>(trampoline_2gb));
-        trampoline_code.init(ci);
+        trampoline_code.init(environment, reinterpret_cast<uintptr_t>(trampoline_2gb));
 
         asmjit::x86::Assembler trampoline_assembler(&trampoline_code);
 
@@ -241,9 +243,9 @@ std::vector<uint8_t> detour_base::create_absolute_jump() const
     using namespace asmjit::x86;
 
     asmjit::CodeHolder jump_code;
-    asmjit::CodeInfo ci(asmjit::ArchInfo::kIdX86);
-    ci.setBaseAddress(address_);
-    jump_code.init(ci);
+    auto environment = asmjit::Environment::host();
+    environment.setArch(asmjit::Arch::kX86);
+    jump_code.init(environment, address_);
 
     asmjit::x86::Assembler jump_assembler(&jump_code);
 
