@@ -166,7 +166,7 @@ void detour_base::hook()
     if (trampoline_2gb) {
         using namespace asmjit::x86;
 
-        trampoline_code.init(asmjit::hostEnvironment(),
+        trampoline_code.init(asmjit::Environment::host(),
                              reinterpret_cast<uintptr_t>(trampoline_2gb));
 
         asmjit::x86::Assembler trampoline_assembler(&trampoline_code);
@@ -209,7 +209,7 @@ void detour_base::hook()
 
         using namespace asmjit::x86;
 
-        trampoline_code.init(asmjit::hostEnvironment(),
+        trampoline_code.init(asmjit::Environment::host(),
                              reinterpret_cast<uintptr_t>(trampoline_2gb));
 
         asmjit::x86::Assembler trampoline_assembler(&trampoline_code);
@@ -245,7 +245,7 @@ std::vector<uint8_t> detour_base::create_absolute_jump() const
     using namespace asmjit::x86;
 
     asmjit::CodeHolder jump_code;
-    jump_code.init(asmjit::hostEnvironment());
+    jump_code.init(asmjit::Environment::host());
 
     asmjit::x86::Assembler jump_assembler(&jump_code);
 
