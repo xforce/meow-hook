@@ -4,7 +4,6 @@ project (meow-hook)
 set (ASMJIT_STATIC TRUE)
 add_subdirectory(third_party/asmjit)
 add_subdirectory(third_party/zydis)
-add_subdirectory(third_party/spdlog)
 
 add_library("meow-hook" STATIC)
 target_compile_definitions("meow-hook" PRIVATE "NOMINMAX" "WIN32_LEAN_AND_MEAN")

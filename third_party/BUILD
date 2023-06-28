@@ -1,16 +1,4 @@
 cc_library(
-    name = "spdlog",
-    hdrs = glob(["spdlog/include/**/*.h"]),
-    defines = [
-        "SPDLOG_WCHAR_FILENAMES",
-    ],
-    includes = [
-        "spdlog/include",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-cc_library(
     name = "zycore",
     srcs = glob(["zydis/dependencies/zycore/src/**/*.c"]),
     hdrs = glob(["zydis/dependencies/zycore/include/**/*.h"]),
